@@ -1,8 +1,12 @@
 package mflix.api.daos;
 
-import com.mongodb.client.MongoClient;
-import com.mongodb.client.MongoCollection;
-import com.mongodb.client.model.*;
+import static com.mongodb.client.model.Projections.fields;
+import static com.mongodb.client.model.Projections.include;
+
+import java.util.ArrayList;
+import java.util.LinkedList;
+import java.util.List;
+
 import org.bson.Document;
 import org.bson.conversions.Bson;
 import org.bson.types.ObjectId;
@@ -10,9 +14,16 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
-import java.util.ArrayList;
-import java.util.LinkedList;
-import java.util.List;
+import com.mongodb.client.MongoClient;
+import com.mongodb.client.MongoCollection;
+import com.mongodb.client.model.Aggregates;
+import com.mongodb.client.model.BsonField;
+import com.mongodb.client.model.BucketOptions;
+import com.mongodb.client.model.Facet;
+import com.mongodb.client.model.Field;
+import com.mongodb.client.model.Filters;
+import com.mongodb.client.model.Projections;
+import com.mongodb.client.model.Sorts;
 
 @Component
 public class MovieDao extends AbstractMFlixDao {
@@ -116,15 +127,13 @@ public class MovieDao extends AbstractMFlixDao {
    * @param country - Country string value to be matched.
    * @return List of matching Document objects.
    */
-  public List<Document> getMoviesByCountry(String... country) {
-
-    Bson queryFilter = new Document();
-    Bson projection = new Document();
-    //TODO> Ticket: Projection - implement the query and projection required by the unit test
-    List<Document> movies = new ArrayList<>();
-
-    return movies;
-  }
+	public List<Document> getMoviesByCountry(
+		String... country) {
+		List<Document> results = new ArrayList<>();
+		Bson queryFilter = Filters.all("countries", country);
+		moviesCollection.find(queryFilter).projection(fields(include("title"))) .into(results);
+		return results;
+	}
 
   /**
    * This method will execute the following mongo shell query: db.movies.find({"$text": { "$search":
