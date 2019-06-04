@@ -4,9 +4,13 @@ import static org.bson.codecs.configuration.CodecRegistries.fromProviders;
 import static org.bson.codecs.configuration.CodecRegistries.fromRegistries;
 
 import java.util.Map;
+import java.util.Objects;
+import java.util.Optional;
 
+import org.bson.Document;
 import org.bson.codecs.configuration.CodecRegistry;
 import org.bson.codecs.pojo.PojoCodecProvider;
+import org.bson.conversions.Bson;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -18,6 +22,8 @@ import com.mongodb.WriteConcern;
 import com.mongodb.client.MongoClient;
 import com.mongodb.client.MongoCollection;
 import com.mongodb.client.model.Filters;
+import com.mongodb.client.model.Updates;
+import com.mongodb.client.result.UpdateResult;
 
 import mflix.api.models.Session;
 import mflix.api.models.User;
@@ -67,15 +73,20 @@ public class UserDao extends AbstractMFlixDao {
    * @param jwt - jwt string token
    * @return true if successful
    */
-	public boolean createUserSession(
-		final String userId,
-		final String jwt) {
-		final Session session = new Session();
-		session.setUserId(userId);
-		session.setJwt(jwt);
-		sessionsCollection.insertOne(session);
-		return true;
-	}
+   	public boolean createUserSession(
+   		final String userId,
+   		final String jwt) {
+   		final Session session = new Session();
+   		session.setUserId(userId);
+   		session.setJwt(jwt);
+   		if (Optional.ofNullable(sessionsCollection.find(Filters.eq("user_id", userId)).first())
+   			.isPresent()) {
+   			sessionsCollection.updateOne(Filters.eq("user_id", userId), Updates.set("jwt", jwt));
+   		} else {
+   			sessionsCollection.insertOne(session);
+   		}
+   		return true;
+   	}
 
   /**
    * Returns the User object matching the an email string value.
@@ -130,10 +141,25 @@ public class UserDao extends AbstractMFlixDao {
    * @return User object that just been updated.
    */
   public boolean updateUserPreferences(final String email, final Map<String, ?> userPreferences) {
-    //TODO> Ticket: User Preferences - implement the method that allows for user preferences to
-    // be updated.
+		if (Objects.isNull(userPreferences)) {
+			throw new IncorrectDaoOperation("userPreferences cannot be set to null");
+		}
+//		boolean result = usersCollection
+//			.updateOne(Filters.eq("email", email),
+//				Updates.set("preferences",
+//					Optional.ofNullable(userPreferences).orElseThrow(
+//						() -> new IncorrectDaoOperation("user preferences cannot be null"))))
+//			.wasAcknowledged();
+		Bson filter = new Document("email", email);
+		Bson updateObject = Updates.set("preferences", userPreferences);
+		UpdateResult result = usersCollection.updateOne(filter, updateObject);
+		if (result.getModifiedCount() < 1) {
+			log.warn(
+				"User `{}` was not updated. Trying to re-write the same `preferences` field: `{}`",
+				email, userPreferences);
+		}
     //TODO > Ticket: Handling Errors - make this method more robust by
     // handling potential exceptions when updating an entry.
-    return false;
+	    return true;
   }
 }
