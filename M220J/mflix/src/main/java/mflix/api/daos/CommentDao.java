@@ -21,6 +21,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import com.mongodb.MongoClientSettings;
+import com.mongodb.MongoException;
 import com.mongodb.ReadConcern;
 import com.mongodb.client.MongoClient;
 import com.mongodb.client.MongoCollection;
@@ -84,10 +85,13 @@ public class CommentDao extends AbstractMFlixDao {
 		if (comment.getId() == null || comment.getId().isEmpty()) {
 			throw new IncorrectDaoOperation("Comment objects need to have an id field set.");
 		}
-		commentCollection.insertOne(comment);
-    // TODO> Ticket - Handling Errors: Implement a try catch block to
-    // handle a potential write exception when given a wrong commentId.
-		return comment;
+	    try {
+	        commentCollection.insertOne(comment);  
+	        return comment;
+	      } catch (MongoException e) {
+	        log.error("An error ocurred while trying to insert a Comment.");
+	        return null;
+	      }
   }
 
   /**
@@ -104,23 +108,26 @@ public class CommentDao extends AbstractMFlixDao {
    * @return true if successfully updates the comment text.
    */
   public boolean updateComment(String commentId, String text, String email) {
-		Bson filter = Filters.and(Filters.eq("_id", new ObjectId(commentId)), Filters.eq("email", email));
-		Bson updateObject = Updates.combine(Updates.set("text", text), Updates.set("date", new Date()));
-		UpdateResult result = commentCollection.updateOne(
-			filter,
-			updateObject);
-		if (result.getMatchedCount() > 0) {
-			if (result.getModifiedCount() != 1) {
-				log.warn("Comment `{}` text was not updated. Is it the same text?");
-			}
-			return true;
-		}
 		log.error("Could not update comment `{}`. Make sure the comment is owned by `{}`",
 			commentId, email);
-    // TODO> Ticket - Handling Errors: Implement a try catch block to
-    // handle a potential write exception when given a wrong commentId.
+	    try {
+	    	Bson filter = Filters.and(Filters.eq("_id", new ObjectId(commentId)), Filters.eq("email", email));
+	    	Bson updateObject = Updates.combine(Updates.set("text", text), Updates.set("date", new Date()));
+	    	UpdateResult result = commentCollection.updateOne(
+				filter,
+				updateObject);
+			if (result.getMatchedCount() > 0) {
+				if (result.getModifiedCount() != 1) {
+					log.warn("Comment `{}` text was not updated. Is it the same text?");
+				}
+				return true;
+			}
+			return false;
+	      } catch (MongoException e) {
+	        log.error("An error ocurred while trying to update a Comment.");
+	        return false;
+	      }
 //		return result.getMatchedCount() > 0 && result.getModifiedCount() > 0;
-		return false;
   }
 
   /**
@@ -134,19 +141,22 @@ public class CommentDao extends AbstractMFlixDao {
 	    if(!Optional.ofNullable(commentId).isPresent()) {
 	        throw new IllegalArgumentException("Commend id cannot be null");
 	      }
-	      DeleteResult result = commentCollection
-	        .deleteOne(
-	        	Filters.and( 
-	            Filters.eq("_id", new ObjectId(commentId)), 
-	            Filters.eq("email", email)));
-    // TODO> Ticket Handling Errors - Implement a try catch block to
-    // handle a potential write exception when given a wrong commentId.
-		long count = result.getDeletedCount();
-		if (count != 1) {
-			log.error("Could not delete comment `{}` owned by `{}`", commentId, email);
+		try {
+			DeleteResult result = commentCollection
+					.deleteOne(
+						Filters.and( 
+							Filters.eq("_id", new ObjectId(commentId)), 
+							Filters.eq("email", email)));
+			long count = result.getDeletedCount();
+			if (count != 1) {
+				log.error("Could not delete comment `{}` owned by `{}`", commentId, email);
+				return false;
+			} else {
+				return true;
+			}
+		} catch (MongoException e) {
+			log.error("An error ocurred while trying to delete a Comment.");
 			return false;
-		} else {
-			return true;
 		}
   }
 

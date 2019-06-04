@@ -17,7 +17,9 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Configuration;
 
+import com.mongodb.ErrorCategory;
 import com.mongodb.MongoClientSettings;
+import com.mongodb.MongoException;
 import com.mongodb.WriteConcern;
 import com.mongodb.client.MongoClient;
 import com.mongodb.client.MongoCollection;
@@ -57,12 +59,18 @@ public class UserDao extends AbstractMFlixDao {
    * @return True if successful, throw IncorrectDaoOperation otherwise
    */
   public boolean addUser(final User user) {
-	usersCollection
-		.withWriteConcern(WriteConcern.MAJORITY)
-		.insertOne(user);
-    return true;
-    //TODO > Ticket: Handling Errors - make sure to only add new users
-    // and not users that already exist.
+		try {
+			usersCollection
+			.withWriteConcern(WriteConcern.MAJORITY)
+			.insertOne(user);
+			return true;
+		} catch (MongoException e) {
+			log.error("An error ocurred while trying to insert a User.");
+			if (ErrorCategory.fromErrorCode(e.getCode()) == ErrorCategory.DUPLICATE_KEY) {
+				throw new IncorrectDaoOperation("The User is already in the database.");
+			}
+			return false;
+		}
 
   }
 
@@ -76,16 +84,21 @@ public class UserDao extends AbstractMFlixDao {
    	public boolean createUserSession(
    		final String userId,
    		final String jwt) {
-   		final Session session = new Session();
-   		session.setUserId(userId);
-   		session.setJwt(jwt);
-   		if (Optional.ofNullable(sessionsCollection.find(Filters.eq("user_id", userId)).first())
-   			.isPresent()) {
-   			sessionsCollection.updateOne(Filters.eq("user_id", userId), Updates.set("jwt", jwt));
-   		} else {
-   			sessionsCollection.insertOne(session);
-   		}
-   		return true;
+   		try {
+   			final Session session = new Session();
+   			session.setUserId(userId);
+   			session.setJwt(jwt);
+   			if (Optional.ofNullable(sessionsCollection.find(Filters.eq("user_id", userId)).first())
+   					.isPresent()) {
+   				sessionsCollection.updateOne(Filters.eq("user_id", userId), Updates.set("jwt", jwt));
+   			} else {
+   				sessionsCollection.insertOne(session);
+   			}
+   			return true;
+		} catch (MongoException e) {
+			log.error("An error ocurred while trying to insert/update a Session.");
+			return false;
+		}
    	}
 
   /**
@@ -124,12 +137,14 @@ public class UserDao extends AbstractMFlixDao {
    * @return true if user successfully removed
    */
   public boolean deleteUser(final String email) {
-    // remove user sessions
-	sessionsCollection.deleteMany(Filters.eq("user_id", email));
-	usersCollection.deleteMany(Filters.eq("email", email));
-    //TODO > Ticket: Handling Errors - make this method more robust by
-    // handling potential exceptions.
-    return true;
+		try {
+			sessionsCollection.deleteMany(Filters.eq("user_id", email));
+			usersCollection.deleteMany(Filters.eq("email", email));
+			return true;
+		} catch (MongoException e) {
+			log.error("An error ocurred while trying to delete a User.");
+			return false;
+		}
   }
 
   /**
@@ -150,16 +165,19 @@ public class UserDao extends AbstractMFlixDao {
 //					Optional.ofNullable(userPreferences).orElseThrow(
 //						() -> new IncorrectDaoOperation("user preferences cannot be null"))))
 //			.wasAcknowledged();
-		Bson filter = new Document("email", email);
-		Bson updateObject = Updates.set("preferences", userPreferences);
-		UpdateResult result = usersCollection.updateOne(filter, updateObject);
-		if (result.getModifiedCount() < 1) {
-			log.warn(
-				"User `{}` was not updated. Trying to re-write the same `preferences` field: `{}`",
-				email, userPreferences);
-		}
-    //TODO > Ticket: Handling Errors - make this method more robust by
-    // handling potential exceptions when updating an entry.
-	    return true;
+	    try {
+	    	Bson filter = new Document("email", email);
+	    	Bson updateObject = Updates.set("preferences", userPreferences);
+	    	UpdateResult result = usersCollection.updateOne(filter, updateObject);
+	    	if (result.getModifiedCount() < 1) {
+	    		log.warn(
+	    			"User `{}` was not updated. Trying to re-write the same `preferences` field: `{}`",
+	    			email, userPreferences);
+	    	}
+			return true;
+	    } catch (MongoException e) {
+	        log.error("An error ocurred while trying to update User preferences.");
+	        return false;
+	      }
   }
 }
