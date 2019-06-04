@@ -4,6 +4,7 @@ import static com.mongodb.client.model.Projections.fields;
 import static com.mongodb.client.model.Projections.include;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.LinkedList;
 import java.util.List;
 
@@ -24,6 +25,7 @@ import com.mongodb.client.model.Field;
 import com.mongodb.client.model.Filters;
 import com.mongodb.client.model.Projections;
 import com.mongodb.client.model.Sorts;
+import com.mongodb.client.model.Variable;
 
 @Component
 public class MovieDao extends AbstractMFlixDao {
@@ -39,11 +41,16 @@ public class MovieDao extends AbstractMFlixDao {
     moviesCollection = db.getCollection(MOVIES_COLLECTION);
   }
 
-  @SuppressWarnings("unchecked")
-  private Bson buildLookupStage() {
-    return null;
-
-  }
+	@SuppressWarnings("unchecked")
+	private Bson buildLookupStage() {
+		String from = "comments";
+		String as = "comments";
+		Variable<String> let = new Variable<String>("id", "$_id");
+		Document eq = Document.parse("{'$eq':['$movie_id','$$id']}");
+		Bson match = Aggregates.match(Filters.expr(eq));
+		Bson sort = Aggregates.sort(Sorts.descending("date"));
+		return Aggregates.lookup(from, Arrays.asList(let), Arrays.asList(match, sort), as);
+	}
 
   /**
    * movieId needs to be a hexadecimal string value. Otherwise it won't be possible to translate to
@@ -74,7 +81,7 @@ public class MovieDao extends AbstractMFlixDao {
     List<Bson> pipeline = new ArrayList<>();
     // match stage to find movie
     Bson match = Aggregates.match(Filters.eq("_id", new ObjectId(movieId)));
-    Bson lookup = Aggregates.lookup("comments", "_id", "movie_id", "comments");
+    Bson lookup = buildLookupStage();
     pipeline.add(match);
     pipeline.add(lookup);
     Document movie = moviesCollection.aggregate(pipeline).first();
