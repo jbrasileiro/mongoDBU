@@ -6,6 +6,7 @@ import static org.bson.codecs.configuration.CodecRegistries.fromRegistries;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
+import java.util.Optional;
 
 import org.bson.Document;
 import org.bson.codecs.configuration.CodecRegistry;
@@ -23,6 +24,7 @@ import com.mongodb.client.MongoClient;
 import com.mongodb.client.MongoCollection;
 import com.mongodb.client.model.Filters;
 import com.mongodb.client.model.Updates;
+import com.mongodb.client.result.DeleteResult;
 import com.mongodb.client.result.UpdateResult;
 
 import mflix.api.models.Comment;
@@ -125,12 +127,23 @@ public class CommentDao extends AbstractMFlixDao {
    * @return true if successful deletes the comment.
    */
   public boolean deleteComment(String commentId, String email) {
-    // TODO> Ticket Delete Comments - Implement the method that enables the deletion of a user
-    // comment
-    // TIP: make sure to match only users that own the given commentId
+	    if(!Optional.ofNullable(commentId).isPresent()) {
+	        throw new IllegalArgumentException("Commend id cannot be null");
+	      }
+	      DeleteResult result = commentCollection
+	        .deleteOne(
+	        	Filters.and( 
+	            Filters.eq("_id", new ObjectId(commentId)), 
+	            Filters.eq("email", email)));
     // TODO> Ticket Handling Errors - Implement a try catch block to
     // handle a potential write exception when given a wrong commentId.
-    return false;
+		long count = result.getDeletedCount();
+		if (count != 1) {
+			log.error("Could not delete comment `{}` owned by `{}`", commentId, email);
+			return false;
+		} else {
+			return true;
+		}
   }
 
   /**
