@@ -1,18 +1,14 @@
 package mflix.api.daos;
 
-import com.mongodb.MongoClientSettings;
-import com.mongodb.MongoWriteException;
-import com.mongodb.ReadConcern;
-import com.mongodb.client.MongoClient;
-import com.mongodb.client.MongoCollection;
-import com.mongodb.client.model.Aggregates;
-import com.mongodb.client.model.Filters;
-import com.mongodb.client.model.Sorts;
-import com.mongodb.client.model.Updates;
-import com.mongodb.client.result.DeleteResult;
-import com.mongodb.client.result.UpdateResult;
-import mflix.api.models.Comment;
-import mflix.api.models.Critic;
+import static org.bson.codecs.configuration.CodecRegistries.fromProviders;
+import static org.bson.codecs.configuration.CodecRegistries.fromRegistries;
+
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Date;
+import java.util.List;
+import java.util.Optional;
+
 import org.bson.Document;
 import org.bson.codecs.configuration.CodecRegistry;
 import org.bson.codecs.pojo.PojoCodecProvider;
@@ -24,13 +20,20 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
-import java.text.MessageFormat;
-import java.util.ArrayList;
-import java.util.Date;
-import java.util.List;
+import com.mongodb.MongoClientSettings;
+import com.mongodb.MongoException;
+import com.mongodb.ReadConcern;
+import com.mongodb.client.MongoClient;
+import com.mongodb.client.MongoCollection;
+import com.mongodb.client.model.Aggregates;
+import com.mongodb.client.model.Filters;
+import com.mongodb.client.model.Sorts;
+import com.mongodb.client.model.Updates;
+import com.mongodb.client.result.DeleteResult;
+import com.mongodb.client.result.UpdateResult;
 
-import static org.bson.codecs.configuration.CodecRegistries.fromProviders;
-import static org.bson.codecs.configuration.CodecRegistries.fromRegistries;
+import mflix.api.models.Comment;
+import mflix.api.models.Critic;
 
 @Component
 public class CommentDao extends AbstractMFlixDao {
@@ -79,12 +82,16 @@ public class CommentDao extends AbstractMFlixDao {
    * returns the resulting Comment object.
    */
   public Comment addComment(Comment comment) {
-
-    // TODO> Ticket - Update User reviews: implement the functionality that enables adding a new
-    // comment.
-    // TODO> Ticket - Handling Errors: Implement a try catch block to
-    // handle a potential write exception when given a wrong commentId.
-    return null;
+		if (comment.getId() == null || comment.getId().isEmpty()) {
+			throw new IncorrectDaoOperation("Comment objects need to have an id field set.");
+		}
+	    try {
+	        commentCollection.insertOne(comment);  
+	        return comment;
+	      } catch (MongoException e) {
+	        log.error("An error ocurred while trying to insert a Comment.");
+	        return null;
+	      }
   }
 
   /**
@@ -101,12 +108,26 @@ public class CommentDao extends AbstractMFlixDao {
    * @return true if successfully updates the comment text.
    */
   public boolean updateComment(String commentId, String text, String email) {
-
-    // TODO> Ticket - Update User reviews: implement the functionality that enables updating an
-    // user own comments
-    // TODO> Ticket - Handling Errors: Implement a try catch block to
-    // handle a potential write exception when given a wrong commentId.
-    return false;
+		log.error("Could not update comment `{}`. Make sure the comment is owned by `{}`",
+			commentId, email);
+	    try {
+	    	Bson filter = Filters.and(Filters.eq("_id", new ObjectId(commentId)), Filters.eq("email", email));
+	    	Bson updateObject = Updates.combine(Updates.set("text", text), Updates.set("date", new Date()));
+	    	UpdateResult result = commentCollection.updateOne(
+				filter,
+				updateObject);
+			if (result.getMatchedCount() > 0) {
+				if (result.getModifiedCount() != 1) {
+					log.warn("Comment `{}` text was not updated. Is it the same text?");
+				}
+				return true;
+			}
+			return false;
+	      } catch (MongoException e) {
+	        log.error("An error ocurred while trying to update a Comment.");
+	        return false;
+	      }
+//		return result.getMatchedCount() > 0 && result.getModifiedCount() > 0;
   }
 
   /**
@@ -117,12 +138,26 @@ public class CommentDao extends AbstractMFlixDao {
    * @return true if successful deletes the comment.
    */
   public boolean deleteComment(String commentId, String email) {
-    // TODO> Ticket Delete Comments - Implement the method that enables the deletion of a user
-    // comment
-    // TIP: make sure to match only users that own the given commentId
-    // TODO> Ticket Handling Errors - Implement a try catch block to
-    // handle a potential write exception when given a wrong commentId.
-    return false;
+	    if(!Optional.ofNullable(commentId).isPresent()) {
+	        throw new IllegalArgumentException("Commend id cannot be null");
+	      }
+		try {
+			DeleteResult result = commentCollection
+					.deleteOne(
+						Filters.and( 
+							Filters.eq("_id", new ObjectId(commentId)), 
+							Filters.eq("email", email)));
+			long count = result.getDeletedCount();
+			if (count != 1) {
+				log.error("Could not delete comment `{}` owned by `{}`", commentId, email);
+				return false;
+			} else {
+				return true;
+			}
+		} catch (MongoException e) {
+			log.error("An error ocurred while trying to delete a Comment.");
+			return false;
+		}
   }
 
   /**
@@ -134,12 +169,15 @@ public class CommentDao extends AbstractMFlixDao {
    */
   public List<Critic> mostActiveCommenters() {
     List<Critic> mostActive = new ArrayList<>();
-    // // TODO> Ticket: User Report - execute a command that returns the
-    // // list of 20 users, group by number of comments. Don't forget,
-    // // this report is expected to be produced with an high durability
-    // // guarantee for the returned documents. Once a commenter is in the
-    // // top 20 of users, they become a Critic, so mostActive is composed of
-    // // Critic objects.
+		Bson count = Aggregates.sortByCount("$email");
+		Bson limit = Aggregates.limit(20);
+		Bson sort = Aggregates.sort(Sorts.descending("count"));
+		List<Bson> pipeline = Arrays.asList(count, limit, sort);
+		commentCollection
+			.withReadConcern(ReadConcern.MAJORITY)
+			.aggregate(pipeline, Critic.class)
+			.iterator()
+			.forEachRemaining(mostActive::add);
     return mostActive;
   }
 }
